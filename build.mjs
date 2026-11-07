@@ -1,0 +1,12 @@
+import {build} from 'esbuild';
+import fs from 'fs';
+const SITE = process.argv.includes('--site');
+const r = await build({entryPoints:['src/app.jsx'],bundle:true,format:'iife',minify:true,write:false,target:'es2019',jsx:'transform'});
+const js = r.outputFiles[0].text.replace(/<\/script/g,'<\\/script');
+const seed = JSON.stringify(JSON.parse(fs.readFileSync('src/seed.json','utf8')));
+let html = fs.readFileSync('template.html','utf8');
+const auth = SITE ? JSON.stringify(JSON.parse(fs.readFileSync('users.json','utf8'))) : 'null';
+html = html.replace('/*SEED*/null', ()=>seed).replace('/*AUTH*/null', ()=>auth).replace('/*SITE*/false', ()=>String(SITE)).replace('/*BUNDLE*/', ()=>js);
+const out = SITE ? 'index.html' : 'dist.html';
+fs.writeFileSync(out, html);
+console.log('built', out, html.length, 'bytes');

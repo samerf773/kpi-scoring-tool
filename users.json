@@ -1,0 +1,12 @@
+{
+  "mohammad_atwi": {
+    "salt": "92dd356820acbdf64cea5d0ed889c0d1",
+    "iterations": 210000,
+    "hash": "13aacad025c04c13e19147418340862541b421deece9d1420f0b1e43c57b7120"
+  },
+  "anthony_ziade": {
+    "salt": "c1513e03118b024bbc487bc996a876b6",
+    "iterations": 210000,
+    "hash": "4b015129c398a44f985b93322da7764e79afed335e37bede35681ca46f06fa53"
+  }
+}
