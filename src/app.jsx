@@ -329,7 +329,7 @@ function App({ user, signOut }) {
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'Receiving Audit entry'),
-        h('p', null, 'Type the audit result as a percentage. Press Enter to move to the next branch. Target is ' + pct(SETUP[brand].kpis.ra.t, 0) + ' for ' + pts(SETUP[brand].kpis.ra.w) + ' points. Below target the grade rule applies: 85–89.9% earns 75%, 80–84.9% earns 50%, under 80% earns 25%.')),
+        h('p', null, 'Type the audit result as a percentage. Press Enter to move to the next branch. Target is ' + pct(SETUP[brand].kpis.ra.t, 0) + ' for ' + pts(SETUP[brand].kpis.ra.w) + ' points. Grade rule: 85–89.9% earns 75%, 80–84.9% earns 50%, under 80% earns 25%.')),
       h(AuditTable, { brand, stores, scored: stats.scored, update, period: period.id, disabled })),
 
     h('section', { className: 'card' },
