@@ -1,4 +1,4 @@
-import { KPIS, SETUP, PASS, GRADE_RULES, multiplier, gradeFor, statusOf, brandStats, describe } from './score.js';
+import { KPIS, SETUP, PASS, GRADE_RULES, multiplier, gradeFor, statusOf, brandStats, storesFor, describe } from './score.js';
 import { has, pct, pts, gradeText, STATUS } from './fmt.js';
 import { RankingPanel, Heatmap, BranchDetail, Trend } from './insights.jsx';
 import { ChartsSection, StatsTable } from './charts.jsx';
@@ -11,7 +11,7 @@ const h = React.createElement;
 const SEED = window.__SEED__;
 const DOC = 'kpi/state2';
 const LS_KEY = 'kpi-scorecard-v2';
-const BRANDS = ['happy', 'extra'];
+const BRANDS = ['happy', 'extra', 'total'];
 
 const initialData = () => ({
   active: 'oct-2026',
@@ -148,39 +148,42 @@ function Tile({ label, value, sub, small, children }) {
 
 function Summary({ brand, stats, stores }) {
   const n = stores.length;
+  const isTotal = brand === 'total';
   const w = SETUP[brand].kpis.ra.w;
-  const raPts = stats.perKpi[0].avgPts;
+  const raPts = isTotal ? stats.perKpi[0].avgAttain : stats.perKpi[0].avgPts;
   const done = stats.scored.filter((r) => r.complete).slice().sort((x, y) => y.total - x.total);
   const top = done[0], low = done[done.length - 1];
   const d = describe(done.map((r) => r.total));
   return h('section', { className: 'tiles', 'aria-label': 'Brand summary' },
     h(Tile, {
-      label: 'Brand score', value: pct(stats.avg),
+      label: isTotal ? 'Total score' : 'Brand score', value: pct(stats.avg),
       sub: stats.complete === n ? 'Average of ' + n + ' branches · pass mark ' + pct(PASS, 0)
         : stats.complete + ' of ' + n + ' branches fully entered',
     }, stats.avg !== null ? h(Status, { score: stats.avg }) : null),
     h(Tile, { label: 'Branches passing', value: stats.complete ? stats.passing + ' of ' + stats.complete : '—', sub: 'At or above ' + pct(PASS, 0) }),
     h(Tile, { label: 'Receiving Audit average', value: pct(stats.raAvg), sub: stats.raCount + ' of ' + n + ' branches entered · target ' + pct(SETUP[brand].kpis.ra.t, 0) }),
-    h(Tile, { label: 'Receiving Audit points', value: has(raPts) ? pts(raPts) + ' / ' + pts(w) : '—', sub: 'Average earned per branch' }),
+    h(Tile, isTotal
+      ? { label: 'Receiving Audit points earned', value: has(raPts) ? pct(raPts) : '—', sub: 'Share of audit points earned, average per branch' }
+      : { label: 'Receiving Audit points', value: has(raPts) ? pts(raPts) + ' / ' + pts(w) : '—', sub: 'Average earned per branch' }),
     top ? h(Tile, { label: 'Top branch', value: top.store.name, small: true, sub: pct(top.total) + ' overall' }) : null,
     top ? h(Tile, { label: 'Lowest branch', value: low.store.name, small: true, sub: pct(low.total) + ' overall' }) : null,
     top ? h(Tile, { label: 'Median score', value: pct(d.median), sub: 'Average ' + pct(d.mean) }) : null,
     top ? h(Tile, { label: 'Spread', value: ((d.max - d.min) * 100).toFixed(2) + ' pts', sub: 'Highest minus lowest · std dev ' + (d.sd * 100).toFixed(2) }) : null);
 }
 
-function AuditTable({ brand, stores, scored, update, period, disabled }) {
-  const setV = (sid, key, val) => update((d) => patchStore(d, period, brand, sid, (s) => {
+function AuditTable({ brand: tabBrand, stores, scored, update, period, disabled }) {
+  const isTotal = tabBrand === 'total';
+  const setV = (rb, sid, key, val) => update((d) => patchStore(d, period, rb, sid, (s) => {
     const m = { ...(s.m || {}) };
     delete m[key];
     return { ...s, v: { ...s.v, [key]: val }, m };
   }));
-  const target = SETUP[brand].kpis.ra.t;
-  const w = SETUP[brand].kpis.ra.w;
   return h('div', { className: 'table-scroll' },
     h('table', { className: 'grid' },
       h('caption', { className: 'sr' }, 'Receiving Audit entry by branch'),
       h('thead', null, h('tr', null,
         h('th', { scope: 'col' }, 'Branch'),
+        isTotal ? h('th', { scope: 'col' }, 'Brand') : null,
         h('th', { scope: 'col', className: 'r' }, 'Receiving Audit'),
         h('th', { scope: 'col' }, 'Grade applied'),
         h('th', { scope: 'col', className: 'r' }, 'Points'),
@@ -188,14 +191,17 @@ function AuditTable({ brand, stores, scored, update, period, disabled }) {
         h('th', { scope: 'col' }, 'Status'))),
       h('tbody', null, stores.map((s, i) => {
         const sc = scored[i];
+        const brand = s.brand || tabBrand;
+        const w = SETUP[brand].kpis.ra.w;
         const v = s.v.ra;
         const m = multiplier(brand, 'ra', s);
         const bad = has(v) && (v < 0 || v > 1);
         return h('tr', { key: s.id },
           h('th', { scope: 'row', className: 'name' }, s.name),
+          isTotal ? h('td', null, SETUP[brand].label) : null,
           h('td', { className: 'r' }, h(PctInput, {
-            id: 'ra-' + brand + '-' + s.id, label: s.name + ' receiving audit percent', col: 'ra-' + brand,
-            value: v, onChange: (val) => setV(s.id, 'ra', val), disabled, warn: bad })),
+            id: 'ra-' + brand + '-' + s.id, label: s.name + ' receiving audit percent', col: 'ra-' + tabBrand,
+            value: v, onChange: (val) => setV(brand, s.id, 'ra', val), disabled, warn: bad })),
           h('td', null,
             h('span', { className: 'tier' }, has(v) ? gradeText(m) : '\u2014'),
             has(v) && s.m && has(s.m.ra) && Math.abs(gradeFor(brand, 'ra', v) - s.m.ra) > 1e-9 ? h('div', { className: 'note-warn' }, 'From workbook. Rule gives ' + gradeText(gradeFor(brand, 'ra', v))) : null,
@@ -215,8 +221,9 @@ function patchStore(d, period, brand, sid, fn) {
   };
 }
 
-function Breakdown({ stats }) {
-  const rows = stats.perKpi.filter((r) => r.avgPts !== null).slice().sort((a, b) => b.lost - a.lost);
+function Breakdown({ stats, brand }) {
+  const isTotal = brand === 'total';
+  const rows = stats.perKpi.filter((r) => r.avgPts !== null).map((r) => ({ ...r, lostShare: 1 - r.avgAttain })).sort((a, b) => b.lostShare - a.lostShare);
   if (!rows.length) return h('p', { className: 'empty' }, 'Enter KPI values to see where points are lost.');
   return h('div', { className: 'table-scroll' },
     h('table', { className: 'grid break' },
@@ -225,19 +232,22 @@ function Breakdown({ stats }) {
         h('th', { scope: 'col' }, 'KPI'),
         h('th', { scope: 'col', className: 'r' }, 'Weight'),
         h('th', { scope: 'col' }, 'Average earned'),
-        h('th', { scope: 'col', className: 'r' }, 'Points lost'))),
+        h('th', { scope: 'col', className: 'r' }, isTotal ? 'Share lost' : 'Points lost'))),
       h('tbody', null, rows.map((r) => h('tr', { key: r.key },
         h('th', { scope: 'row', className: 'name' }, r.label),
-        h('td', { className: 'r num-cell' }, pts(r.weight)),
+        h('td', { className: 'r num-cell' }, isTotal ? 'Varies' : pts(r.weight)),
         h('td', null, h('div', { className: 'earn' },
-          h('span', { className: 'earn-track' }, h('span', { className: 'earn-bar', style: { width: (r.avgPts / r.weight) * 100 + '%' } })),
-          h('span', { className: 'num-cell earn-val' }, pts(r.avgPts) + ' / ' + pts(r.weight)))),
-        h('td', { className: 'r num-cell strong' }, r.lost < 0.00005 ? '0.00' : '−' + pts(r.lost)))))));
+          h('span', { className: 'earn-track' }, h('span', { className: 'earn-bar', style: { width: r.avgAttain * 100 + '%' } })),
+          h('span', { className: 'num-cell earn-val' }, isTotal ? pct(r.avgAttain) : pts(r.avgPts) + ' / ' + pts(r.weight)))),
+        h('td', { className: 'r num-cell strong' }, isTotal
+          ? (r.lostShare < 0.00005 ? '0.00%' : '\u2212' + pct(r.lostShare))
+          : (r.lost < 0.00005 ? '0.00' : '\u2212' + pts(r.lost))))))));
 }
 
-function AllKpis({ brand, stores, scored, update, period, disabled }) {
+function AllKpis({ brand: tabBrand, stores, scored, update, period, disabled }) {
+  const isTotal = tabBrand === 'total';
   const others = KPIS.filter((k) => k.key !== 'ra');
-  const setV = (sid, key, val) => update((d) => patchStore(d, period, brand, sid, (s) => {
+  const setV = (rb, sid, key, val) => update((d) => patchStore(d, period, rb, sid, (s) => {
     const m = { ...(s.m || {}) };
     delete m[key];
     return { ...s, v: { ...s.v, [key]: val }, m };
@@ -247,21 +257,38 @@ function AllKpis({ brand, stores, scored, update, period, disabled }) {
       h('caption', { className: 'sr' }, 'All KPI values by branch' ),
       h('thead', null, h('tr', null,
         h('th', { scope: 'col' }, 'Branch'),
+        isTotal ? h('th', { scope: 'col' }, 'Brand') : null,
         others.map((k) => h('th', { scope: 'col', key: k.key, className: 'r' },
-          k.label, h('div', { className: 'th-sub' }, 'target ' + pct(SETUP[brand].kpis[k.key].t, k.key === 'dmg' || k.key === 'acc' ? 2 : 0) + ' · ' + pts(SETUP[brand].kpis[k.key].w) + ' pts'))))),
-      h('tbody', null, stores.map((s, i) => h('tr', { key: s.id },
+          k.label, h('div', { className: 'th-sub' }, 'target ' + pct(SETUP[tabBrand].kpis[k.key].t, k.key === 'dmg' || k.key === 'acc' ? 2 : 0) + (isTotal ? '' : ' · ' + pts(SETUP[tabBrand].kpis[k.key].w) + ' pts')))))),
+      h('tbody', null, stores.map((s, i) => { const brand = s.brand || tabBrand; return h('tr', { key: s.id },
         h('th', { scope: 'row', className: 'name' }, s.name),
+        isTotal ? h('td', null, SETUP[brand].label) : null,
         others.map((k) => {
           const p = scored[i].pts[k.key];
           return h('td', { key: k.key, className: 'r' },
-            h(PctInput, { id: k.key + '-' + brand + '-' + s.id, label: s.name + ' ' + k.label, col: k.key + '-' + brand, value: s.v[k.key], onChange: (val) => setV(s.id, k.key, val), disabled }),
+            h(PctInput, { id: k.key + '-' + brand + '-' + s.id, label: s.name + ' ' + k.label, col: k.key + '-' + tabBrand, value: s.v[k.key], onChange: (val) => setV(brand, s.id, k.key, val), disabled }),
             h('div', { className: 'cell-foot' },
               has(s.v[k.key]) ? h('span', { className: 'grade-chip' + (multiplier(brand, k.key, s) < 1 ? ' reduced' : ''), title: s.m && has(s.m[k.key]) ? 'Grade from your workbook. Change the value and the setup rule applies instead.' : 'Grade worked out from the setup rule' }, 'Grade ' + gradeText(multiplier(brand, k.key, s)) + (s.m && has(s.m[k.key]) && Math.abs(gradeFor(brand, k.key, s.v[k.key]) - s.m[k.key]) > 1e-9 ? ' \u00B7 rule ' + gradeText(gradeFor(brand, k.key, s.v[k.key])) : '')) : null,
               h('span', { className: 'num-cell pts-small' }, has(p) ? pts(p) : '—')));
-        }))))));
+        })); }))));
 }
 
 function SetupTable({ brand }) {
+  if (brand === 'total') {
+    return h('div', { className: 'table-scroll' },
+      h('table', { className: 'grid' },
+        h('caption', { className: 'sr' }, 'Targets and weights for both brands'),
+        h('thead', null, h('tr', null, ['KPI', 'Target', 'Happy weight', 'Happy Extra weight', 'Better when'].map((t, i) => h('th', { key: t, scope: 'col', className: i >= 1 && i <= 3 ? 'r' : '' }, t)))),
+        h('tbody', null, KPIS.map((k) => {
+          const c = SETUP.happy.kpis[k.key], e = SETUP.extra.kpis[k.key];
+          return h('tr', { key: k.key },
+            h('th', { scope: 'row', className: 'name' }, k.label),
+            h('td', { className: 'r num-cell' }, pct(c.t, k.key === 'dmg' || k.key === 'acc' ? 2 : 1)),
+            h('td', { className: 'r num-cell' }, pct(c.w, 1)),
+            h('td', { className: 'r num-cell' }, pct(e.w, 1)),
+            h('td', null, k.dir === 'high' ? 'Higher' : 'Lower'));
+        }))));
+  }
   return h('div', { className: 'table-scroll' },
     h('table', { className: 'grid' },
       h('caption', { className: 'sr' }, SETUP[brand].label + ' targets and weights'),
@@ -285,7 +312,7 @@ function App({ user, signOut }) {
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const period = data.periods.find((p) => p.id === data.active) || data.periods[0];
-  const stores = period.brands[brand];
+  const stores = useMemo(() => storesFor(period, brand), [period, brand]);
   const stats = useMemo(() => brandStats(brand, stores), [brand, stores]);
   const disabled = !ready;
   const selId = stats.scored.some((r) => r.store.id === sel) ? sel : (stats.scored.slice().filter((r) => r.entered).sort((a, b) => a.total - b.total)[0] || stats.scored[0]).store.id;
@@ -334,14 +361,14 @@ function App({ user, signOut }) {
 
     h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Brand' },
       BRANDS.map((b) => h('button', { key: b, role: 'tab', 'aria-selected': b === brand, className: 'tab' + (b === brand ? ' on' : ''), onClick: () => setBrand(b) },
-        SETUP[b].label, h('span', { className: 'tab-n' }, period.brands[b].length + ' branches')))),
+        SETUP[b].label, h('span', { className: 'tab-n' }, storesFor(period, b).length + ' branches')))),
 
     h(Summary, { brand, stats, stores }),
 
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'Receiving Audit entry'),
-        h('p', null, 'Type the audit result as a percentage. Press Enter to move to the next branch. Target is ' + pct(SETUP[brand].kpis.ra.t, 0) + ' for ' + pts(SETUP[brand].kpis.ra.w) + ' points. Grade rule: 85–89.9% earns 75%, 80–84.9% earns 50%, under 80% earns 25%.')),
+        h('p', null, 'Type the audit result as a percentage. Press Enter to move to the next branch. Target is ' + pct(SETUP[brand].kpis.ra.t, 0) + (brand === 'total' ? ', worth ' + pts(SETUP.happy.kpis.ra.w) + ' points for every branch in both brands' : ' for ' + pts(SETUP[brand].kpis.ra.w) + ' points') + '. Grade rule: 85–89.9% earns 75%, 80–84.9% earns 50%, under 80% earns 25%.')),
       h(AuditTable, { brand, stores, scored: stats.scored, update, period: period.id, disabled })),
 
     h('section', { className: 'card' },
@@ -377,13 +404,13 @@ function App({ user, signOut }) {
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'Where the points are lost'),
-        h('p', null, 'Average across ' + SETUP[brand].label + ' branches, largest loss first. Weights differ between Happy and Happy Extra.')),
-      h(Breakdown, { stats })),
+        h('p', null, (brand === 'total' ? 'Average across all branches of both brands, shown as a share of each KPI\u2019s points because weights differ between Happy and Happy Extra. Largest loss first.' : 'Average across ' + SETUP[brand].label + ' branches, largest loss first. Weights differ between Happy and Happy Extra.'))),
+      h(Breakdown, { stats, brand })),
 
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'KPI statistics'),
-        h('p', null, 'How each KPI is spread across ' + SETUP[brand].label + ' branches. Click a column heading to sort.')),
+        h('p', null, 'How each KPI is spread across ' + (brand === 'total' ? 'all' : SETUP[brand].label) + ' branches. Click a column heading to sort.')),
       h(StatsTable, { brand, scored: stats.scored })),
 
     h('details', { className: 'card' },
@@ -392,7 +419,7 @@ function App({ user, signOut }) {
       h(AllKpis, { brand, stores, scored: stats.scored, update, period: period.id, disabled })),
 
     h('details', { className: 'card' },
-      h('summary', null, h('h2', { className: 'inline-h' }, SETUP[brand].label + ' setup: targets and weights')),
+      h('summary', null, h('h2', { className: 'inline-h' }, (brand === 'total' ? 'Happy and Happy Extra setup' : SETUP[brand].label + ' setup') + ': targets and weights')),
       h(SetupTable, { brand })),
 
     h('p', { className: 'foot' }, 'Brand score is the average of branch scores. The Executive Summary sheet instead scores the averaged KPIs, so its totals differ. October grades are copied from the workbook formulas. New periods and edited values use the Further scoring rules on the setup sheets, and where a rule leaves a gap the nearest band below applies. Fresh food wastage, FMCG damage and cost to income lose points as they rise above target, floored at zero.'));

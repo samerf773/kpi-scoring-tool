@@ -1,11 +1,11 @@
-import { KPIS, SETUP, PASS, multiplier, scoreStore, statusOf, brandStats } from './score.js';
+import { KPIS, SETUP, PASS, multiplier, scoreStore, statusOf, brandStats, storesFor } from './score.js';
 import { has, pct, pts, gradeText, STATUS } from './fmt.js';
 
 const { useState } = React;
 const h = React.createElement;
 
 const wOf = (brand, key) => SETUP[brand].kpis[key].w;
-const attainOf = (brand, r, key) => (has(r.pts[key]) ? r.pts[key] / wOf(brand, key) : null);
+const attainOf = (brand, r, key) => (has(r.pts[key]) ? r.pts[key] / wOf(r.brand || brand, key) : null);
 const fmtVal = (key, v) => pct(v, key === 'acc' || key === 'dmg' ? 2 : 1);
 
 export function Tip({ tip }) {
@@ -22,7 +22,7 @@ function StatusIcon({ score }) {
 }
 
 function kpiTipRows(brand, r) {
-  return KPIS.map((k) => [k.label, has(r.pts[k.key]) ? pts(r.pts[k.key]) + ' / ' + pts(wOf(brand, k.key)) : 'not entered']);
+  return KPIS.map((k) => [k.label, has(r.pts[k.key]) ? pts(r.pts[k.key]) + ' / ' + pts(wOf(r.brand || brand, k.key)) : 'not entered']);
 }
 
 /* ---------- ranking with metric and order controls ---------- */
@@ -44,7 +44,7 @@ export function RankingPanel({ brand, scored, sel, onSel }) {
     return {
       x: e.clientX, y: e.clientY, title: x.r.store.name,
       rows: [['Actual', fmtVal(k, v)], ['Target', fmtVal(k, SETUP[brand].kpis[k].t)], ['Grade applied', gradeText(multiplier(brand, k, x.r.store))],
-        ['Points', pts(x.r.pts[k]) + ' / ' + pts(wOf(brand, k))]],
+        ['Points', pts(x.r.pts[k]) + ' / ' + pts(wOf(x.r.brand || brand, k))]],
     };
   };
 
@@ -105,7 +105,7 @@ export function Heatmap({ brand, scored, sel, onSel }) {
                 onMouseMove: (e) => setTip({
                   x: e.clientX, y: e.clientY, title: r.store.name + ' · ' + k.label,
                   rows: [['Actual', fmtVal(k.key, r.store.v[k.key])], ['Target', fmtVal(k.key, SETUP[brand].kpis[k.key].t)],
-                    ['Grade applied', gradeText(multiplier(brand, k.key, r.store))], ['Points', pts(r.pts[k.key]) + ' / ' + pts(wOf(brand, k.key))]],
+                    ['Grade applied', gradeText(multiplier(brand, k.key, r.store))], ['Points', pts(r.pts[k.key]) + ' / ' + pts(wOf(r.brand || brand, k.key))]],
                 }),
                 'aria-label': r.store.name + ' ' + k.label + ' ' + (a * 100).toFixed(2) + ' percent of points',
               }, (a * 100).toFixed(2)));
@@ -118,10 +118,11 @@ export function Heatmap({ brand, scored, sel, onSel }) {
 }
 
 /* ---------- branch detail with what-if ---------- */
-export function BranchDetail({ brand, scored, stats, selId }) {
+export function BranchDetail({ brand: tabBrand, scored, stats, selId }) {
   const [whatIf, setWhatIf] = useState(null);
-  const r = scored.find((x) => x.store.id === selId);
+  const r = scored.find((x) => x.store.id === selId && (tabBrand !== 'total' || true));
   if (!r) return h('p', { className: 'empty' }, 'Select a branch in the ranking or heatmap.');
+  const brand = r.brand;
   const ranked = scored.filter((x) => x.complete).sort((a, b) => b.total - a.total);
   const rank = ranked.findIndex((x) => x.store.id === selId) + 1;
   const diff = r.complete && stats.avg !== null ? r.total - stats.avg : null;
@@ -137,7 +138,7 @@ export function BranchDetail({ brand, scored, stats, selId }) {
       h('div', { className: 'detail-score' },
         h('span', { className: 'big' }, r.entered ? pct(r.total) : '—'),
         st ? h('span', { className: 'pill' }, h('span', { className: 'ico ' + st.cls, 'aria-hidden': 'true' }, st.icon), st.label) : null,
-        diff !== null ? h('span', { className: 'detail-sub' }, (diff >= 0 ? '+' : '−') + (Math.abs(diff) * 100).toFixed(2) + ' pts vs brand average') : null)),
+        diff !== null ? h('span', { className: 'detail-sub' }, (diff >= 0 ? '+' : '−') + (Math.abs(diff) * 100).toFixed(2) + ' pts vs ' + (tabBrand === 'total' ? 'total' : 'brand') + ' average') : null)),
     h('div', { className: 'table-scroll' },
       h('table', { className: 'grid detail-table' },
         h('caption', { className: 'sr' }, r.store.name + ' KPI detail'),
@@ -149,7 +150,7 @@ export function BranchDetail({ brand, scored, stats, selId }) {
           const c = SETUP[brand].kpis[k.key];
           const a = attainOf(brand, r, k.key);
           const avg = stats.perKpi.find((p) => p.key === k.key);
-          const avgA = avg && avg.avgPts !== null ? avg.avgPts / c.w : null;
+          const avgA = avg && avg.avgAttain !== null ? avg.avgAttain : null;
           const lost = has(r.pts[k.key]) ? c.w - r.pts[k.key] : null;
           return h('tr', { key: k.key },
             h('th', { scope: 'row', className: 'name' }, k.label),
@@ -182,8 +183,8 @@ export function Trend({ brand, periods, activeId }) {
   const [tip, setTip] = useState(null);
   const [hover, setHover] = useState(null);
   const pts_ = periods.map((p) => {
-    const st = brandStats(brand, p.brands[brand]);
-    return { id: p.id, label: p.label, score: st.avg, ra: st.raAvg, complete: st.complete, n: p.brands[brand].length };
+    const st = brandStats(brand, storesFor(p, brand));
+    return { id: p.id, label: p.label, score: st.avg, ra: st.raAvg, complete: st.complete, n: storesFor(p, brand).length };
   });
   const n = pts_.length;
   const W = 640, H = 230, ml = 44, mr = 20, mt = 14, mb = 30;

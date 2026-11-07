@@ -17,7 +17,7 @@ function Composition({ brand, scored }) {
   if (!rows.length) return h('p', { className: 'empty' }, 'Enter KPI values to see the composition.');
   const segTip = (e, r, k) => setTip({
     x: e.clientX, y: e.clientY, title: r.store.name + ' · ' + k.label,
-    rows: [['Actual', pct(r.store.v[k.key])], ['Target', pct(SETUP[brand].kpis[k.key].t)], ['Grade applied', gradeText(multiplier(brand, k.key, r.store))], ['Points', pts(r.pts[k.key]) + ' / ' + pts(wOf(brand, k.key))]],
+    rows: [['Actual', pct(r.store.v[k.key])], ['Target', pct(SETUP[brand].kpis[k.key].t)], ['Grade applied', gradeText(multiplier(brand, k.key, r.store))], ['Points', pts(r.pts[k.key]) + ' / ' + pts(wOf(r.brand || brand, k.key))]],
   });
   return h('div', { onMouseLeave: () => setTip(null) },
     h('div', { className: 'legend legend-btns', role: 'group', 'aria-label': 'Highlight a KPI' },
@@ -65,7 +65,7 @@ function AuditDots({ brand, scored }) {
       rows.map((r, i) => {
         const y = mt + i * rowH + rowH / 2 - 4;
         const v = r.store.v.ra;
-        return h('g', { key: r.store.id, onMouseMove: (e) => setTip({ x: e.clientX, y: e.clientY, title: r.store.name, rows: [['Receiving Audit', pct(v)], ['Target', pct(target)], ['Grade applied', gradeText(multiplier(brand, 'ra', r.store))], ['Points', pts(r.pts.ra) + ' / ' + pts(wOf(brand, 'ra'))]] }) },
+        return h('g', { key: r.store.id, onMouseMove: (e) => setTip({ x: e.clientX, y: e.clientY, title: r.store.name, rows: [['Receiving Audit', pct(v)], ['Target', pct(target)], ['Grade applied', gradeText(multiplier(brand, 'ra', r.store))], ['Points', pts(r.pts.ra) + ' / ' + pts(wOf(r.brand || brand, 'ra'))]] }) },
           h('rect', { x: 0, y: y - rowH / 2 + 4, width: W, height: rowH, fill: 'transparent' }),
           h('text', { x: ml - 10, y: y + 4, textAnchor: 'end', style: { fill: 'var(--ink)', fontSize: 12 } }, r.store.name),
           h('line', { x1: X(lo), x2: X(v), y1: y, y2: y, strokeWidth: 2, style: { stroke: 'var(--series-soft)' } }),
@@ -115,7 +115,7 @@ export function ChartsSection({ brand, scored, period }) {
 }
 
 /* ---------- extra charts and statistics ---------- */
-const attainOf = (brand, r, key) => (has(r.pts[key]) ? r.pts[key] / wOf(brand, key) : null);
+const attainOf = (brand, r, key) => (has(r.pts[key]) ? r.pts[key] / wOf(r.brand || brand, key) : null);
 
 // Spread by KPI: every branch as a dot on the 0-100% share-of-points scale, line = median.
 export function SpreadChart({ brand, scored }) {
@@ -143,7 +143,7 @@ export function SpreadChart({ brand, scored }) {
             const gap = Math.min(4.5, 24 / list.length);
             return h('circle', {
               key: e.r.store.id, cx: X(e.a), cy: cy + (j - (list.length - 1) / 2) * gap, r: 4, strokeWidth: 1.5, style: { fill: 'var(--series)', stroke: 'var(--surface)', cursor: 'default' },
-              onMouseMove: (ev) => setTip({ x: ev.clientX, y: ev.clientY, title: e.r.store.name + ' · ' + k.label, rows: [['Actual', pct(e.r.store.v[k.key])], ['Share of points', pct(e.a)], ['Points', pts(e.r.pts[k.key]) + ' / ' + pts(wOf(brand, k.key))]] }),
+              onMouseMove: (ev) => setTip({ x: ev.clientX, y: ev.clientY, title: e.r.store.name + ' · ' + k.label, rows: [['Actual', pct(e.r.store.v[k.key])], ['Share of points', pct(e.a)], ['Points', pts(e.r.pts[k.key]) + ' / ' + pts(wOf(e.r.brand || brand, k.key))]] }),
             });
           })));
       })),

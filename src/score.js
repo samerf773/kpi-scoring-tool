@@ -29,6 +29,9 @@ export const SETUP = {
   },
 };
 
+// Targets are the same in both setups. "total" reuses them for lookups; weights always come from a branch's own brand.
+SETUP.total = { label: 'Total', kpis: SETUP.happy.kpis };
+
 export const PASS = 0.85;
 
 // "Further scoring" grades from the setup sheets. At or above target a KPI earns its full grade (100%).
@@ -71,7 +74,7 @@ export function gradeFor(brand, kpi, v) {
 export function multiplier(brand, kpi, store) {
   const m = store.m && store.m[kpi];
   if (has(m)) return m;
-  return gradeFor(brand, kpi, store.v[kpi]);
+  return gradeFor(store.brand || brand, kpi, store.v[kpi]);
 }
 
 function basePct(kpi, v, t) {
@@ -83,10 +86,11 @@ function basePct(kpi, v, t) {
 }
 
 export function pointsFor(brand, kpi, store) {
+  const b = store.brand || brand;
   const v = store.v[kpi];
   if (!has(v)) return null;
-  const { t, w } = SETUP[brand].kpis[kpi];
-  return basePct(kpi, v, t) * w * multiplier(brand, kpi, store);
+  const { t, w } = SETUP[b].kpis[kpi];
+  return basePct(kpi, v, t) * w * multiplier(b, kpi, store);
 }
 
 export function scoreStore(brand, store) {
@@ -108,16 +112,24 @@ export function statusOf(score) {
   return 'critical';
 }
 
+// The branches shown for a tab. "total" is every branch from both brands, each tagged with its own brand.
+export function storesFor(period, brand) {
+  if (brand === 'total') return [...period.brands.happy.map((s) => ({ ...s, brand: 'happy' })), ...period.brands.extra.map((s) => ({ ...s, brand: 'extra' }))];
+  return period.brands[brand];
+}
+
 export function brandStats(brand, stores) {
-  const scored = stores.map((s) => ({ store: s, ...scoreStore(brand, s) }));
+  const scored = stores.map((s) => ({ store: s, brand: s.brand || brand, ...scoreStore(brand, s) }));
   const complete = scored.filter((s) => s.complete);
   const avg = complete.length ? complete.reduce((a, s) => a + s.total, 0) / complete.length : null;
   const passing = complete.filter((s) => s.total >= PASS).length;
   const perKpi = KPIS.map((k) => {
-    const vals = scored.map((s) => s.pts[k.key]).filter((p) => p !== null);
-    const w = SETUP[brand].kpis[k.key].w;
-    const avgPts = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    return { key: k.key, label: k.label, weight: w, avgPts, n: vals.length, lost: avgPts === null ? null : w - avgPts };
+    const rows = scored.filter((s) => s.pts[k.key] !== null);
+    const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+    const avgPts = mean(rows.map((s) => s.pts[k.key]));
+    const avgAttain = mean(rows.map((s) => s.pts[k.key] / SETUP[s.brand].kpis[k.key].w));
+    const w = brand === 'total' ? null : SETUP[brand].kpis[k.key].w;
+    return { key: k.key, label: k.label, weight: w, avgPts, avgAttain, n: rows.length, lost: avgPts === null || w === null ? null : w - avgPts };
   });
   const raVals = stores.map((s) => s.v.ra).filter(has);
   const raAvg = raVals.length ? raVals.reduce((a, b) => a + b, 0) / raVals.length : null;
