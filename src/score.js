@@ -123,3 +123,27 @@ export function brandStats(brand, stores) {
   const raAvg = raVals.length ? raVals.reduce((a, b) => a + b, 0) / raVals.length : null;
   return { scored, complete: complete.length, avg, passing, perKpi, raAvg, raCount: raVals.length };
 }
+
+// Summary statistics for a list of numbers (sample standard deviation).
+export function describe(values) {
+  const v = values.filter(has).slice().sort((a, b) => a - b);
+  const n = v.length;
+  if (!n) return { n: 0 };
+  const mean = v.reduce((a, b) => a + b, 0) / n;
+  const median = n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+  const sd = n > 1 ? Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : 0;
+  return { n, mean, median, min: v[0], max: v[n - 1], sd };
+}
+
+// Pearson correlation and least-squares line for paired values; null when it cannot be computed.
+export function regression(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
+  if (sxx === 0 || syy === 0) return null;
+  const slope = sxy / sxx;
+  return { r: sxy / Math.sqrt(sxx * syy), slope, intercept: my - slope * mx, n };
+}

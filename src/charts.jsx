@@ -1,5 +1,5 @@
-import { KPIS, SETUP, PASS, multiplier, brandStats } from './score.js';
-import { has, pct, pts, gradeText } from './fmt.js';
+import { KPIS, SETUP, PASS, multiplier, brandStats, describe, regression, statusOf } from './score.js';
+import { has, pct, pts, gradeText, STATUS } from './fmt.js';
 import { Tip } from './insights.jsx';
 
 const { useState } = React;
@@ -107,9 +107,123 @@ function BrandCompare({ period, activeBrand }) {
 
 export function ChartsSection({ brand, scored, period }) {
   const [tab, setTab] = useState('composition');
-  const tabs = [['composition', 'Score composition'], ['audit', 'Receiving Audit'], ['compare', 'Happy vs Happy Extra']];
+  const tabs = [['composition', 'Score composition'], ['audit', 'Receiving Audit'], ['spread', 'Spread by KPI'], ['scatter', 'Audit vs overall'], ['status', 'Status mix'], ['compare', 'Happy vs Happy Extra']];
   return h('div', null,
     h('div', { className: 'seg-tabs', role: 'tablist', 'aria-label': 'Chart' },
       tabs.map(([id, label]) => h('button', { key: id, role: 'tab', 'aria-selected': tab === id, className: 'seg-tab' + (tab === id ? ' on' : ''), onClick: () => setTab(id) }, label))),
-    tab === 'composition' ? h(Composition, { brand, scored }) : tab === 'audit' ? h(AuditDots, { brand, scored }) : h(BrandCompare, { period, activeBrand: brand }));
+    tab === 'composition' ? h(Composition, { brand, scored }) : tab === 'audit' ? h(AuditDots, { brand, scored }) : tab === 'spread' ? h(SpreadChart, { brand, scored }) : tab === 'scatter' ? h(ScatterChart, { brand, scored }) : tab === 'status' ? h(StatusMix, { scored }) : h(BrandCompare, { period, activeBrand: brand }));
+}
+
+/* ---------- extra charts and statistics ---------- */
+const attainOf = (brand, r, key) => (has(r.pts[key]) ? r.pts[key] / wOf(brand, key) : null);
+
+// Spread by KPI: every branch as a dot on the 0-100% share-of-points scale, line = median.
+export function SpreadChart({ brand, scored }) {
+  const [tip, setTip] = useState(null);
+  const W = 700, ml = 150, mr = 26, mt = 22, rowH = 38, H = mt + KPIS.length * rowH + 28;
+  const iw = W - ml - mr;
+  const X = (a) => ml + a * iw;
+  if (!scored.some((r) => r.entered)) return h('p', { className: 'empty' }, 'Enter KPI values to see the spread.');
+  return h('div', { onMouseLeave: () => setTip(null) },
+    h('svg', { className: 'dots', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Share of points earned by every branch, for each KPI' },
+      [0, 0.25, 0.5, 0.75, 1].map((t) => h('g', { key: t },
+        h('line', { x1: X(t), x2: X(t), y1: mt - 8, y2: mt + KPIS.length * rowH, style: { stroke: 'var(--line)' } }),
+        h('text', { x: X(t), y: H - 8, textAnchor: 'middle', style: { fill: 'var(--muted)', fontSize: 11 } }, Math.round(t * 100) + '%'))),
+      KPIS.map((k, i) => {
+        const cy = mt + i * rowH + rowH / 2;
+        const entries = scored.map((r) => ({ r, a: attainOf(brand, r, k.key) })).filter((e) => e.a !== null);
+        const buckets = {};
+        entries.forEach((e) => { const b = Math.round(e.a * 200); (buckets[b] = buckets[b] || []).push(e); });
+        const med = describe(entries.map((e) => e.a)).median;
+        return h('g', { key: k.key },
+          h('text', { x: ml - 10, y: cy + 4, textAnchor: 'end', style: { fill: 'var(--ink)', fontSize: 12 } }, k.label),
+          h('line', { x1: X(0), x2: X(1), y1: cy, y2: cy, style: { stroke: 'var(--axis)' } }),
+          med !== undefined ? h('line', { x1: X(med), x2: X(med), y1: cy - 15, y2: cy + 15, strokeWidth: 2.5, style: { stroke: 'var(--ink)' } }) : null,
+          Object.values(buckets).map((list) => list.map((e, j) => {
+            const gap = Math.min(4.5, 24 / list.length);
+            return h('circle', {
+              key: e.r.store.id, cx: X(e.a), cy: cy + (j - (list.length - 1) / 2) * gap, r: 4, strokeWidth: 1.5, style: { fill: 'var(--series)', stroke: 'var(--surface)', cursor: 'default' },
+              onMouseMove: (ev) => setTip({ x: ev.clientX, y: ev.clientY, title: e.r.store.name + ' · ' + k.label, rows: [['Actual', pct(e.r.store.v[k.key])], ['Share of points', pct(e.a)], ['Points', pts(e.r.pts[k.key]) + ' / ' + pts(wOf(brand, k.key))]] }),
+            });
+          })));
+      })),
+    h('p', { className: 'chart-note' }, 'Each dot is a branch, placed by the share of that KPI’s points it earned. The black line is the median. Dots at the same value are stacked.'),
+    h(Tip, { tip }));
+}
+
+// Receiving Audit against overall score, with the least-squares line and correlation.
+export function ScatterChart({ brand, scored }) {
+  const [tip, setTip] = useState(null);
+  const pts_ = scored.filter((r) => r.complete && has(r.store.v.ra));
+  if (pts_.length < 2) return h('p', { className: 'empty' }, 'Needs at least two fully entered branches.');
+  const xs = pts_.map((r) => r.store.v.ra), ys = pts_.map((r) => r.total);
+  const reg = regression(xs, ys);
+  const xlo = Math.floor((Math.min(...xs) - 0.02) * 20) / 20, ylo = Math.floor((Math.min(...ys) - 0.03) * 20) / 20;
+  const W = 640, H = 360, ml = 52, mr = 20, mt = 16, mb = 42;
+  const iw = W - ml - mr, ih = H - mt - mb;
+  const X = (v) => ml + ((v - xlo) / (1 - xlo)) * iw;
+  const Y = (v) => mt + ih - ((v - ylo) / (1 - ylo)) * ih;
+  const ticks = (lo) => { const out = []; const step = (1 - lo) > 0.3 ? 0.1 : 0.05; for (let t = Math.ceil(lo / step) * step; t <= 1 + 1e-9; t += step) out.push(+t.toFixed(2)); return out; };
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  return h('div', { onMouseLeave: () => setTip(null) },
+    h('svg', { className: 'dots', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Receiving Audit against overall KPI score, one dot per branch' },
+      ticks(ylo).map((t) => h('g', { key: 'y' + t },
+        h('line', { x1: ml, x2: W - mr, y1: Y(t), y2: Y(t), style: { stroke: 'var(--line)' } }),
+        h('text', { x: ml - 8, y: Y(t) + 4, textAnchor: 'end', style: { fill: 'var(--muted)', fontSize: 11 } }, Math.round(t * 100) + '%'))),
+      ticks(xlo).map((t) => h('text', { key: 'x' + t, x: X(t), y: H - 22, textAnchor: 'middle', style: { fill: 'var(--muted)', fontSize: 11 } }, Math.round(t * 100) + '%')),
+      h('text', { x: ml + iw / 2, y: H - 6, textAnchor: 'middle', style: { fill: 'var(--ink2)', fontSize: 12 } }, 'Receiving Audit'),
+      h('text', { x: 14, y: mt + ih / 2, textAnchor: 'middle', transform: 'rotate(-90 14 ' + (mt + ih / 2) + ')', style: { fill: 'var(--ink2)', fontSize: 12 } }, 'Overall KPI score'),
+      ylo < PASS ? h('g', null,
+        h('line', { x1: ml, x2: W - mr, y1: Y(PASS), y2: Y(PASS), strokeDasharray: '4 4', style: { stroke: 'var(--ink2)' } }),
+        h('text', { x: W - mr - 4, y: Y(PASS) - 5, textAnchor: 'end', style: { fill: 'var(--ink2)', fontSize: 11 } }, 'Pass ' + pct(PASS))) : null,
+      reg ? h('line', { x1: X(x0), x2: X(x1), y1: Y(Math.min(1, reg.intercept + reg.slope * x0)), y2: Y(Math.min(1, reg.intercept + reg.slope * x1)), strokeWidth: 2, style: { stroke: 'var(--series2)' } }) : null,
+      pts_.map((r) => h('circle', {
+        key: r.store.id, cx: X(r.store.v.ra), cy: Y(r.total), r: 6, strokeWidth: 2, style: { fill: 'var(--series)', stroke: 'var(--surface)' },
+        onMouseMove: (ev) => setTip({ x: ev.clientX, y: ev.clientY, title: r.store.name, rows: [['Receiving Audit', pct(r.store.v.ra)], ['Overall KPI score', pct(r.total)], ['Status', STATUS[statusOf(r.total)].label]] }),
+      }))),
+    h('p', { className: 'chart-note' }, reg ? 'Correlation r = ' + reg.r.toFixed(2) + ' across ' + reg.n + ' branches. The orange line is the best straight-line fit. With this few branches, treat it as a rough guide.' : 'The line and correlation need at least 3 branches with different values.'),
+    h(Tip, { tip }));
+}
+
+// How many branches sit in each status band, and which ones.
+export function StatusMix({ scored }) {
+  const done = scored.filter((r) => r.complete);
+  if (!done.length) return h('p', { className: 'empty' }, 'Needs at least one fully entered branch.');
+  const bands = ['pass', 'watch', 'below', 'critical'].map((k) => ({ k, s: STATUS[k], list: done.filter((r) => statusOf(r.total) === k).sort((a, b) => b.total - a.total) }));
+  const ink = { pass: '#0b0b0b', watch: '#0b0b0b', below: '#0b0b0b', critical: '#ffffff' };
+  const bg = { pass: 'var(--good)', watch: 'var(--warn)', below: 'var(--serious)', critical: 'var(--crit)' };
+  return h('div', null,
+    h('div', { className: 'mix-bar', role: 'img', 'aria-label': bands.map((b) => b.s.label + ' ' + b.list.length).join(', ') },
+      bands.filter((b) => b.list.length).map((b) => h('span', { key: b.k, className: 'mix-seg', style: { flex: Math.max(b.list.length, 2.4), background: bg[b.k], color: ink[b.k] } }, b.s.icon + ' ' + b.s.label + ' · ' + b.list.length))),
+    h('div', { className: 'mix-cols' }, bands.map((b) => h('div', { key: b.k, className: 'mix-col' },
+      h('div', { className: 'mix-head' }, h('span', { className: 'ico ' + b.s.cls, 'aria-hidden': 'true' }, b.s.icon), ' ', b.s.label, h('span', { className: 'mix-n' }, b.list.length)),
+      b.list.length ? b.list.map((r) => h('div', { key: r.store.id, className: 'mix-item' }, h('span', null, r.store.name), h('span', { className: 'num-cell' }, pct(r.total)))) : h('div', { className: 'mix-none' }, 'None')))),
+    h('p', { className: 'chart-note' }, 'Pass is ' + pct(PASS) + ' or more, Watch is 80.00% to 84.99%, Below target is 60.00% to 79.99%, Critical is under 60.00%.'));
+}
+
+// Sortable per-KPI statistics across branches.
+export function StatsTable({ brand, scored }) {
+  const [sort, setSort] = useState({ key: null, dir: 'desc' });
+  const rows = KPIS.map((k) => {
+    const entries = scored.filter((r) => has(r.store.v[k.key])).map((r) => ({ name: r.store.name, v: r.store.v[k.key], a: attainOf(brand, r, k.key) }));
+    const d = describe(entries.map((e) => e.v));
+    return { k, d, n: entries.length, minE: entries.find((e) => e.v === d.min), maxE: entries.find((e) => e.v === d.max), meet: entries.filter((e) => e.a >= 0.99995).length };
+  });
+  const val = (r, key) => (key === 'meet' ? (r.n ? r.meet / r.n : -1) : r.d.n ? r.d[key] : -Infinity);
+  const shown = sort.key ? rows.slice().sort((a, b) => (sort.dir === 'desc' ? val(b, sort.key) - val(a, sort.key) : val(a, sort.key) - val(b, sort.key))) : rows;
+  const head = (key, label, right) => h('th', { scope: 'col', className: right ? 'r' : '', 'aria-sort': sort.key === key ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none' },
+    key ? h('button', { className: 'sort-btn', onClick: () => setSort(sort.key === key ? { key, dir: sort.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }) }, label, sort.key === key ? (sort.dir === 'desc' ? ' ▾' : ' ▴') : '') : label);
+  return h('div', { className: 'table-scroll' },
+    h('table', { className: 'grid stats' },
+      h('caption', { className: 'sr' }, 'KPI statistics across branches'),
+      h('thead', null, h('tr', null, head(null, 'KPI'), head(null, 'Target', true), head('mean', 'Mean', true), head('median', 'Median', true), head('min', 'Lowest', true), head('max', 'Highest', true), head('sd', 'Std dev (pts)', true), head('meet', 'Earning full points', true))),
+      h('tbody', null, shown.map((r) => h('tr', { key: r.k.key },
+        h('th', { scope: 'row', className: 'name' }, r.k.label),
+        h('td', { className: 'r num-cell muted' }, pct(SETUP[brand].kpis[r.k.key].t)),
+        h('td', { className: 'r num-cell' }, r.d.n ? pct(r.d.mean) : '—'),
+        h('td', { className: 'r num-cell' }, r.d.n ? pct(r.d.median) : '—'),
+        h('td', { className: 'r num-cell' }, r.d.n ? [pct(r.d.min), h('div', { key: 'n', className: 'sub-name' }, r.minE && r.minE.name)] : '—'),
+        h('td', { className: 'r num-cell' }, r.d.n ? [pct(r.d.max), h('div', { key: 'n', className: 'sub-name' }, r.maxE && r.maxE.name)] : '—'),
+        h('td', { className: 'r num-cell' }, r.d.n ? (r.d.sd * 100).toFixed(2) : '—'),
+        h('td', { className: 'r num-cell' }, r.n ? r.meet + ' of ' + r.n : '—'))))));
 }

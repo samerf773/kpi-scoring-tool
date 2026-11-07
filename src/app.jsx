@@ -1,7 +1,7 @@
-import { KPIS, SETUP, PASS, GRADE_RULES, multiplier, gradeFor, statusOf, brandStats } from './score.js';
+import { KPIS, SETUP, PASS, GRADE_RULES, multiplier, gradeFor, statusOf, brandStats, describe } from './score.js';
 import { has, pct, pts, gradeText, STATUS } from './fmt.js';
 import { RankingPanel, Heatmap, BranchDetail, Trend } from './insights.jsx';
-import { ChartsSection } from './charts.jsx';
+import { ChartsSection, StatsTable } from './charts.jsx';
 import { AuthGate, Logo } from './auth.jsx';
 import { ThemeToggle } from './theme.jsx';
 
@@ -139,10 +139,10 @@ const STATUS_TEXT = {
 };
 
 /* ---------- sections ---------- */
-function Tile({ label, value, sub, children }) {
+function Tile({ label, value, sub, small, children }) {
   return h('div', { className: 'tile' },
     h('div', { className: 'tile-label' }, label),
-    h('div', { className: 'tile-value' }, value),
+    h('div', { className: 'tile-value' + (small ? ' small' : '') }, value),
     sub ? h('div', { className: 'tile-sub' }, sub) : null, children);
 }
 
@@ -150,6 +150,9 @@ function Summary({ brand, stats, stores }) {
   const n = stores.length;
   const w = SETUP[brand].kpis.ra.w;
   const raPts = stats.perKpi[0].avgPts;
+  const done = stats.scored.filter((r) => r.complete).slice().sort((x, y) => y.total - x.total);
+  const top = done[0], low = done[done.length - 1];
+  const d = describe(done.map((r) => r.total));
   return h('section', { className: 'tiles', 'aria-label': 'Brand summary' },
     h(Tile, {
       label: 'Brand score', value: pct(stats.avg),
@@ -158,7 +161,11 @@ function Summary({ brand, stats, stores }) {
     }, stats.avg !== null ? h(Status, { score: stats.avg }) : null),
     h(Tile, { label: 'Branches passing', value: stats.complete ? stats.passing + ' of ' + stats.complete : '—', sub: 'At or above ' + pct(PASS, 0) }),
     h(Tile, { label: 'Receiving Audit average', value: pct(stats.raAvg), sub: stats.raCount + ' of ' + n + ' branches entered · target ' + pct(SETUP[brand].kpis.ra.t, 0) }),
-    h(Tile, { label: 'Receiving Audit points', value: has(raPts) ? pts(raPts) + ' / ' + pts(w) : '—', sub: 'Average earned per branch' }));
+    h(Tile, { label: 'Receiving Audit points', value: has(raPts) ? pts(raPts) + ' / ' + pts(w) : '—', sub: 'Average earned per branch' }),
+    top ? h(Tile, { label: 'Top branch', value: top.store.name, small: true, sub: pct(top.total) + ' overall' }) : null,
+    top ? h(Tile, { label: 'Lowest branch', value: low.store.name, small: true, sub: pct(low.total) + ' overall' }) : null,
+    top ? h(Tile, { label: 'Median score', value: pct(d.median), sub: 'Average ' + pct(d.mean) }) : null,
+    top ? h(Tile, { label: 'Spread', value: ((d.max - d.min) * 100).toFixed(2) + ' pts', sub: 'Highest minus lowest · std dev ' + (d.sd * 100).toFixed(2) }) : null);
 }
 
 function AuditTable({ brand, stores, scored, update, period, disabled }) {
@@ -302,23 +309,28 @@ function App({ user, signOut }) {
       h('div', { className: 'brandline' },
         h(Logo, { size: 44 }),
         h('div', null,
-        h('h1', null, 'KPI Scoring Tool'),
-        h('p', { className: 'lede' }, 'Enter each branch’s Receiving Audit and see the branch KPI score update. Targets and weights follow your Happy and Happy Extra setup sheets.'))),
-      h('div', { className: 'controls' },
-        h('div', { className: 'field' },
-          h('label', { htmlFor: 'period' }, 'Period'),
-          h('select', { id: 'period', value: period.id, onChange: (e) => update((d) => ({ ...d, active: e.target.value })) },
-            data.periods.map((p) => h('option', { key: p.id, value: p.id }, p.label)))),
-        adding
-          ? h('div', { className: 'field inline' },
-              h('label', { htmlFor: 'newp' }, 'New period name'),
-              h('input', { id: 'newp', type: 'text', value: newLabel, placeholder: 'Nov 2026', onChange: (e) => setNewLabel(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') createPeriod(); } }),
-              h('button', { className: 'btn primary', onClick: createPeriod, disabled: !newLabel.trim() }, 'Create'),
-              h('button', { className: 'btn', onClick: () => setAdding(false) }, 'Cancel'))
-          : h('button', { className: 'btn', onClick: () => setAdding(true), disabled }, 'New period'),
-        h('span', { className: 'save save-' + status, role: 'status' }, STATUS_TEXT[status]),
+          h('h1', null, 'KPI Scoring Tool'),
+          h('p', { className: 'lede' }, 'Enter each branch’s Receiving Audit and see the branch KPI score update. Targets and weights follow your Happy and Happy Extra setup sheets.'))),
+      h('div', { className: 'topright' },
         h(ThemeToggle, null),
-        user ? h('div', { className: 'who' }, h('span', null, 'Signed in as ', h('strong', null, user)), h('button', { className: 'btn', onClick: signOut }, 'Sign out')) : null)),
+        user ? h('div', { className: 'who' },
+          h('span', { className: 'avatar', 'aria-hidden': 'true' }, user.charAt(0).toUpperCase()),
+          h('span', { className: 'who-name' }, user),
+          h('button', { className: 'btn', onClick: signOut }, 'Sign out')) : null)),
+
+    h('div', { className: 'toolbar-row' },
+      h('div', { className: 'field' },
+        h('label', { htmlFor: 'period' }, 'Period'),
+        h('select', { id: 'period', value: period.id, onChange: (e) => update((d) => ({ ...d, active: e.target.value })) },
+          data.periods.map((p) => h('option', { key: p.id, value: p.id }, p.label)))),
+      adding
+        ? h('div', { className: 'field inline' },
+            h('label', { htmlFor: 'newp' }, 'New period name'),
+            h('input', { id: 'newp', type: 'text', value: newLabel, placeholder: 'Nov 2026', onChange: (e) => setNewLabel(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') createPeriod(); } }),
+            h('button', { className: 'btn primary', onClick: createPeriod, disabled: !newLabel.trim() }, 'Create'),
+            h('button', { className: 'btn', onClick: () => setAdding(false) }, 'Cancel'))
+        : h('button', { className: 'btn', onClick: () => setAdding(true), disabled }, 'New period'),
+      h('span', { className: 'save save-' + status, role: 'status' }, STATUS_TEXT[status])),
 
     h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Brand' },
       BRANDS.map((b) => h('button', { key: b, role: 'tab', 'aria-selected': b === brand, className: 'tab' + (b === brand ? ' on' : ''), onClick: () => setBrand(b) },
@@ -335,7 +347,7 @@ function App({ user, signOut }) {
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'Charts'),
-        h('p', null, 'Three views of the same data for ' + period.label + '. Hover for exact figures.')),
+        h('p', null, 'Six views of the same data for ' + period.label + '. Hover for exact figures.')),
       h(ChartsSection, { brand, scored: stats.scored, period })),
 
     h('section', { className: 'card' },
@@ -367,6 +379,12 @@ function App({ user, signOut }) {
         h('h2', null, 'Where the points are lost'),
         h('p', null, 'Average across ' + SETUP[brand].label + ' branches, largest loss first. Weights differ between Happy and Happy Extra.')),
       h(Breakdown, { stats })),
+
+    h('section', { className: 'card' },
+      h('div', { className: 'card-head' },
+        h('h2', null, 'KPI statistics'),
+        h('p', null, 'How each KPI is spread across ' + SETUP[brand].label + ' branches. Click a column heading to sort.')),
+      h(StatsTable, { brand, scored: stats.scored })),
 
     h('details', { className: 'card' },
       h('summary', null, h('h2', { className: 'inline-h' }, 'All KPIs by branch')),
