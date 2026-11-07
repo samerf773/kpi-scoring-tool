@@ -2,6 +2,8 @@
 // This is a front-end gate: it keeps casual visitors out of the interface but cannot protect data
 // that ships inside the page itself.
 
+import { ThemeToggle } from './theme.jsx';
+
 const { useState, useEffect } = React;
 const h = React.createElement;
 
@@ -60,6 +62,7 @@ function Login({ users, onDone }) {
   };
 
   return h('div', { className: 'login-wrap' },
+    h(ThemeToggle, { className: 'corner' }),
     h('form', { className: 'login-card', onSubmit: submit },
       h(Logo, { size: 56 }),
       h('h1', { className: 'login-title' }, 'KPI Scoring Tool'),

@@ -3,6 +3,7 @@ import { has, pct, pts, gradeText, STATUS } from './fmt.js';
 import { RankingPanel, Heatmap, BranchDetail, Trend } from './insights.jsx';
 import { ChartsSection } from './charts.jsx';
 import { AuthGate, Logo } from './auth.jsx';
+import { ThemeToggle } from './theme.jsx';
 
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 const h = React.createElement;
@@ -316,6 +317,7 @@ function App({ user, signOut }) {
               h('button', { className: 'btn', onClick: () => setAdding(false) }, 'Cancel'))
           : h('button', { className: 'btn', onClick: () => setAdding(true), disabled }, 'New period'),
         h('span', { className: 'save save-' + status, role: 'status' }, STATUS_TEXT[status]),
+        h(ThemeToggle, null),
         user ? h('div', { className: 'who' }, h('span', null, 'Signed in as ', h('strong', null, user)), h('button', { className: 'btn', onClick: signOut }, 'Sign out')) : null)),
 
     h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Brand' },
@@ -345,7 +347,7 @@ function App({ user, signOut }) {
     h('section', { className: 'card' },
       h('div', { className: 'card-head' },
         h('h2', null, 'KPI heatmap'),
-        h('p', null, 'Each cell is the share of that KPI\u2019s points a branch earned. Darker means more. Branches are ordered by overall score.')),
+        h('p', null, 'Each cell is the share of that KPI\u2019s points a branch earned, stepping from low to full as shown in the legend. Branches are ordered by overall score.')),
       h(Heatmap, { brand, scored: stats.scored, sel: selId, onSel: setSel })),
 
     h('section', { className: 'card' },
