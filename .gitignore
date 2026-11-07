@@ -3,3 +3,4 @@ preview.html
 dist.html
 *.png
 .kpi-passwords.json
+!assets/logo.png
